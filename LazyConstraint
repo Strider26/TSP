@@ -1,0 +1,83 @@
+Pkg.update()
+
+# Install JuMP
+Pkg.add("JuMP")
+
+# Install interface to your solver of choice.
+# Further setup might be required for these - see the README for each package!
+
+ 
+# GNU GLPK
+# https://github.com/JuliaOpt/GLPK.jl
+Pkg.add("GLPK")
+Pkg.add("GLPKMathProgInterface")
+using JuMP
+using GLPKMathProgInterfcae
+
+# solveTSP
+# Given a matrix of city locations, solve the TSP
+# Inputs:
+#   n       Number of cities
+#   cities  n-by-2 matrix of (x,y) city locations
+# Output:
+#   path    Vector with order to cities are visited in
+function solveTSP(n, cities)
+
+    # Calculate pairwise distance matrix
+    dist = zeros(n, n)
+    for i = 1:n
+        for j = i:n
+            d = norm(cities[i,1:2] - cities[j,1:2])
+            dist[i,j] = d
+            dist[j,i] = d
+        end
+    end
+
+    # Create a model that we will use Gurobi to solve
+    # We need to tell Gurobi we are using lazy constraints
+    m = Model(solver=GLPKMathProgInterface(LazyConstraints=1))
+
+    # x[i,j] is 1 iff we travel between i and j, 0 otherwise
+    # Although we define all n^2 variables, we will only use
+    # the upper triangle
+    @defVar(m, x[1:n,1:n], Bin)
+
+    # Minimize length of tour
+    @setObjective(m, Min, sum{dist[i,j]*x[i,j], i=1:n,j=i:n})
+
+    # Make x_ij and x_ji be the same thing (undirectional)
+    # Don't allow self-arcs
+    for i = 1:n
+        @addConstraint(m, x[i,i] == 0)
+        for j = (i+1):n
+            @addConstraint(m, x[i,j] == x[j,i])
+        end
+    end
+
+    # We must enter and leave every city once and only once
+    for i = 1:n
+        @addConstraint(m, sum{x[i,j], j=1:n} == 2)
+    end
+
+    # Solve the problem
+    solve(m)
+
+    # Return best tour
+    return extractTour(n, getValue(x))
+end  # end solveTSP
+
+
+# Create a simple instance that looks like
+#       +           +
+#   +                   +
+#       +           +
+n = 6
+cities = [ 50 200;
+          100 100;
+          100 300;
+          500 100;
+          500 300;
+          550 200]
+tour = solveTSP(n, cities)
+println("Solution: ")
+println(tour)
